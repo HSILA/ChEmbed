@@ -1,0 +1,52 @@
+train_args:
+  num_epochs: 20
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_pct: 0.05
+  checkpoint: null
+  wandb: true
+  wandb_run_name: "run1-chemical-finetune-pair"
+  wandb_project_name: "text-contrastors"
+  wandb_entity: "hsila"
+  log_grads_every: 10
+  log_lr_every: 10
+  save_every: 3000
+  chunk_size: 32
+  output_dir: "ckpts/run1-chemical-finetune-pair"
+  schedule_type: "linear"
+  max_grad_norm: 1.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  grad_cache: true
+  loss_fn: "clip"
+  use_fp8: false
+  clamp_logits: false
+  logit_max: 100
+
+model_args:
+  model_type: "encoder"
+  logit_scale: 50
+  trainable_logit_scale: false
+  seq_len: 2048
+  pooling: "mean"
+  nomic_encoder: true
+  add_prefix: true
+  num_negatives: 7 
+  tokenizer_name: "bert-base-uncased"
+  # tokenizer_name: "BASF-AI/ChemVocab"
+  model_name: "nomic-ai/nomic-embed-text-v1"
+  pretrained: true
+  # trainable_params: 'all'
+  # trainable_params: 'unused_and_rest'
+
+
+data_args:
+  input_shards: "configs/data/chem_contrastive_finetune.yaml"
+  workers: 8
+  batch_size: 16384
+  seed: 42
+  shuffle: false
+  download: false
+  streaming: true
+  weighted_sampling: false
+  verbose: true

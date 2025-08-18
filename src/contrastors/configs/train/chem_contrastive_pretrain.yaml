@@ -1,0 +1,46 @@
+train_args:
+  num_epochs: 5
+  learning_rate: 1.0e-6
+  weight_decay: 0.01
+  warmup_steps: 10
+  cooldown_steps: null
+  checkpoint: null
+  wandb: true
+  wandb_run_name: "run35-chemical-pretrain-pair"
+  wandb_project_name: "text-contrastors"
+  wandb_entity: "hsila"
+  log_grads_every: 10
+  log_lr_every: 10
+  save_every: 19
+  chunk_size: 32
+  output_dir: "ckpts/run35-chemical-pretrain-pair"
+  schedule_type: "cosine"
+  max_grad_norm: 1.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  grad_cache: true
+  loss_fn: "clip"
+  use_fp8: false
+  clamp_logits: false
+
+model_args:
+  logit_scale: 50
+  trainable_logit_scale: false
+  model_type: "encoder"
+  seq_len: 2048
+  pooling: "mean"
+  nomic_encoder: true
+  add_prefix: true
+  tokenizer_name: "bert-base-uncased"
+  # tokenizer_name: "BASF-AI/ChemVocab"
+  model_name: "nomic-ai/nomic-embed-text-v1-unsupervised"
+  pretrained: true
+  gradient_checkpointing: false
+
+data_args:
+  input_shards: "configs/data/chem_contrastive_finetune.yaml"
+  workers: 0
+  batch_size: 16384
+  seed: 24
+  shuffle: false
+  download: false
