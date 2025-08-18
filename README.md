@@ -1,215 +1,188 @@
-# contrastors
+## ChEmbed: Domain-Adaptive Text Embeddings for Scientific Literature
 
-`contrastors` is contrastive learning toolkit that enables researchers and engineers to train and evaluate contrastive models efficiently.
+![ChEmbed](./docs/ChEmbed.png)
 
+This repository adapts and extends the upstream [nomic-ai/contrastors](https://github.com/nomic-ai/contrastors) to finetune and pretrain Nomic text embedding models on chemistry-specific scientific corpora. The resulting models are named **ChEmbed** and are optimized for chemical literature retrieval and related tasks.
 
-[![img](docs/atlas-nomic-embed.png)](https://atlas.nomic.ai/map/nomic-text-embed-v1-5m-sample)
+- Upstream codebase: [nomic-ai/contrastors](https://github.com/nomic-ai/contrastors)
+- Chemistry data curation and pair mining repo: [HSILA/Chemistry-Data](https://github.com/HSILA/Chemistry-Data)
+- Chemistry datasets collection (query–passage pairs): [Chemical Data](https://huggingface.co/collections/BASF-AI/chemical-data-685b21fedf9026ead61b9f24)
+- Trained ChEmbed models: [ChEmbed](https://huggingface.co/collections/BASF-AI/chembed-685b3e809ac7d2963544865a)
+- Paper: ChEmbed: Enhancing Chemical Literature Search Through Domain-Specific Text Embeddings ([arXiv:2508.01643](https://www.arxiv.org/abs/2508.01643))
 
+The training was executed on Compute Canada (Narval) using 4× A100 GPUs.
+
+---
 
 ## Features
 
-- Built on top of [Flash Attention](https://github.com/Dao-AILab/flash-attention) for fast and efficient training
-- Support for training on multiple GPUs
-- [GradCache](https://github.com/luyug/GradCache) support for training with large batch sizes in constrained memory environments
-- Huggingface Support for easy loading of common models (Pythia/GPTNeoX, BERT, etc.)
-- Masked Language Modeling (MLM) Pretraining
-- [Matryoshka Representation Learning](https://arxiv.org/abs/2205.13147) for flexible embedding sizes
-- [CLIP](https://arxiv.org/abs/2103.00020) and [LiT](https://arxiv.org/abs/2111.07991) style contrastive learning
-- Support for loading popular ViT (e.g. [timm](https://huggingface.co/timm)) models
+- Built on [FlashAttention](https://github.com/Dao-AILab/flash-attention) for efficient training
+- Multi-GPU support (PyTorch Distributed / Deepspeed)
+- [GradCache](https://github.com/luyug/GradCache) for large batches
+- Hugging Face Transformers integration (BERT-style encoders)
+- CLIP-style contrastive objectives with paired and triplet data
 
-## Research
+---
 
-* [Nomic Embed: Training a Reproducible Long Context Text Embedder](https://arxiv.org/abs/2402.01613) by Zach Nussbaum, Jack Morris, Andriy Mulyar, and Brandon Duderstadt
-* [Nomic Embed Vision: Expanding the Latent Space](https://arxiv.org/abs/2406.18587) by Zach Nussbaum, Brandon Duderstadt, and Andriy Mulyar
+## Quick start (standard, with internet)
 
-## Getting Started and Requirements
-
-The `contrastors` library relies on custom kernels from the [Flash Attention](https://github.com/Dao-AILab/flash-attention) repository. To setup your enviornment you will need to follow the steps below.
-
-Make sure that you have Cuda 11.8+. You can check this by running `nvcc --version` or if you already have torch installed you can run `python -c "import torch; print(torch.version.cuda)"`
-
-Create a python venv and activate it
+1) Create and activate a virtualenv
 
 ```bash
-python3 -m venv env
-source env/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-Install [torch](https://pytorch.org/get-started/locally/). See the torch docs for specific instructions for your system (e.g. the default CUDA torch supports is 12.1 as of 12/12/2023).
+2) Install core build tools and dependencies
 
 ```bash
-pip3 install torch torchvision torchaudio
+pip install wheel packaging ninja setuptools torch
+pip install -r requirements.txt
+pip install -e .
 ```
 
-Install wheel, packaging, ninja for Flash Attention (so the builds don't take too long)
+3) Install FlashAttention from source if your environment requires it; refer to `wheels/README.md` for more details.
+
+---
+
+## Training on Compute Canada (offline-friendly)
+
+Use the provided batch script `training-script.sh`, which sets up the environment and launches training:
 
 ```bash
-pip install wheel packaging ninja setuptools
+sbatch training-script.sh
 ```
 
-Install Flash Attention and the custom kernels
+What it does:
+- Loads site modules (CUDA 12.2, GCC 12.3, Python 3.10, etc.)
+- Configures offline caches for Hugging Face (`HF_HUB_OFFLINE=1`, `HF_DATASETS_OFFLINE=1`)
+- Creates a venv on `$SLURM_TMPDIR`
+- Installs wheels from the local `wheels/` directory (see `wheels/README.md`) and `requirements-cc.txt`
+- Launches training with 4 GPUs via `torchrun`
+
+
+If you do not have access to the internet, you can build the environment manually:
+- Place all required wheels under `wheels/` and follow `wheels/README.md` for downloading the correct dependencies.
+- Point `setup.py` to use `requirements-cc.txt` instead of `requirements.txt` when installing on Narval.
+
+```4:6:setup.py
+with open("requirements.txt") as f:
+    requirements = f.read().splitlines()
+```
+
+Change `requirements.txt` to `requirements-cc.txt` if you want to default to the Compute Canada set when running `pip install -e .` in an offline context.
+
+---
+
+## Data loading: local folders and S3
+
+We rewrote the dataloader to support both local file paths and S3-compatible endpoints. Dataset configurations live in:
+- `src/contrastors/configs/data/chem_finetune_pairs.yaml`
+- `src/contrastors/configs/data/chem_finetune_triplets.yaml`
+
+You can use absolute local paths (e.g., `/path/.../shard-{00000..00004}.jsonl.gz`) or S3 URIs (with proper `fsspec` configuration). See the YAMLs above for concrete examples.
+
+---
+
+## Training configs
+
+- Finetune (starting from `nomic-ai/nomic-embed-text-v1`): `src/contrastors/configs/train/chem_contrastive_finetune.yaml`
+- Pretrain (starting from `nomic-ai/nomic-embed-text-v1-unsupervised`): `src/contrastors/configs/train/chem_contrastive_pretrain.yaml`
+
+Example commands (from `src/contrastors`):
 
 ```bash
-pip install --no-cache-dir flash-attn --no-build-isolation git+https://github.com/HazyResearch/flash-attention.git#subdirectory=csrc/rotary git+https://github.com/HazyResearch/flash-attention.git#subdirectory=csrc/layer_norm git+https://github.com/HazyResearch/flash-attention.git#subdirectory=csrc/fused_dense_lib git+https://github.com/HazyResearch/flash-attention.git#subdirectory=csrc/xentropy
+torchrun --nproc-per-node=4 train.py \
+  --config=configs/train/chem_contrastive_finetune.yaml \
+  --dtype=bf16
 ```
-
-Install the rest of the requirements and the package
 
 ```bash
-pip install -e . 
+torchrun --nproc-per-node=4 train.py \
+  --config=configs/train/chem_contrastive_pretrain.yaml \
+  --dtype=bf16
 ```
 
-## Data Access
+Key fields in `model_args` within these configs:
+- `model_name`: base checkpoint (finetune: `nomic-ai/nomic-embed-text-v1`, pretrain: `nomic-ai/nomic-embed-text-v1-unsupervised`)
+- `tokenizer_name`: `bert-base-uncased` or the chemistry-adapted `BASF-AI/ChemVocab`
+- `trainable_params`: controls which parameters update (see below)
 
-We provide access to the `nomic-embed-text-v1` dataset via the `nomic` package. To access the data, you will need to create an account and login to the `nomic` package. First create an account at [atlas.nomic.ai](https://atlas.nomic.ai), download the `nomic` Python client, and run the following commands:
+---
 
-```bash
-pip install nomic
-nomic login # follow prompts to login
-python -c "from nomic import atlas; print(atlas._get_datastream_credentials(name='contrastors'))"
-```
+## Tokenizer adaptation (BASF-AI/ChemVocab)
 
-which will print out your access keys. You can then configure them by using `aws configure` or setting
-the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
+To better represent chemical entities (e.g., IUPAC names), we adapted the tokenizer by inserting chemistry-specific tokens into previously unused slots and released it as `BASF-AI/ChemVocab`. In the paper, we describe adding roughly 900 specialized tokens and maintaining long-context support, which improves retrieval over general-purpose tokenizers. See the paper for details: [arXiv:2508.01643](https://www.arxiv.org/abs/2508.01643).
 
-If you do not have the AWS CLI installed, you can install it [here](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+Training schemes used with the adapted tokenizer:
+- Vanilla: use the original tokenizer and finetune as usual.
+- Full: switch to `BASF-AI/ChemVocab` and train the entire model end-to-end.
+- Plug: switch to `BASF-AI/ChemVocab` and only learn the newly added “unused” token embeddings, keeping the rest fixed.
+- Progressive: stage-wise training; start with only the new token embeddings, then open up the rest of the model (and finally everything) for stable adaptation.
 
-To verify your access, you can run the following command to list the contents of the bucket:
+How to set via `model_args.trainable_params`:
+- `all`: train everything (use for Full; final stage of Progressive; also Vanilla when keeping the original tokenizer)
+- `unused_only`: freeze the whole model except the word-embedding matrix; within the embedding layer, only gradients for previously unused token IDs are kept. Use for Plug; stage 1 of Progressive
+- `unused_and_rest`: train the whole model but freeze gradients for special tokens and already-used tokens in the embedding layer; the rest of the model updates normally. Useful as stage 2 in Progressive
 
-```bash
-aws s3 ls --endpoint-url=https://9fa58365a1a3d032127970d0bd9a1290.r2.cloudflarestorage.com/ s3://contrastive
-aws s3 ls --endpoint-url=https://9fa58365a1a3d032127970d0bd9a1290.r2.cloudflarestorage.com/ s3://contrastive-index-filtered
-```
+You can switch schemes by editing `model_args.tokenizer_name` and `model_args.trainable_params` in the YAML configs.
 
-You should be able to see the contents of the bucket and download the data.
+---
 
-If you intend to train using our data and the `contrastors` repo, you will need to setup `fsspec` support for Cloudflare R2. To do so,
-create a file `~/.config/fsspec/s3.json` with the following contents:
+## Data sources, artifacts, and models
 
-```json
-{
-  "s3": {
-    "client_kwargs": {
-      "endpoint_url": "https://9fa58365a1a3d032127970d0bd9a1290.r2.cloudflarestorage.com/",
-      "aws_access_key_id": <ACCESS_KEY_ID>,
-      "aws_secret_access_key": <SECRET_KEY_ID>
-    }
-  }
-}
-```
+- Chemistry data collection and pair mining code: [HSILA/Chemistry-Data](https://github.com/HSILA/Chemistry-Data)
+- Curated datasets (pairs/triplets): [Chemical Data](https://huggingface.co/collections/BASF-AI/chemical-data-685b21fedf9026ead61b9f24)
+- Trained ChEmbed models: [ChEmbed](https://huggingface.co/collections/BASF-AI/chembed-685b3e809ac7d2963544865a)
 
-### Nomic Data Format
-
-Our text data is stored in gziped jsonl files with which we also store a `counts.json` file and `offsets.json.gzip`.
-
-The `counts.json` file is a dictionary mapping the file name to the number of examples in the file. The `offsets.json.gz` file is a dictionary mapping the file name to a dictionary where each key is the index of the example and the value is a tuple of the start and end byte offset of the example in the file. We do this to allow for streaming of data in from R2, especially when the data is larger than the buffer size.
-
-Here's a small example of what a dataset configuration might look like:
-
-```yaml
-datasets:
-  - name: "paq"
-    bucket: "s3://contrastive-index-filtered/paq_full/shard-{00000..00538}.jsonl.gz"
-    query_prefix: "search_query"
-    document_prefix: "search_document"
-    objective: 
-        type: "paired"
-        columns: ["query", "document"]
-
-```
-
-`objective` defines if it's a paired or triplet objective. In both cases, the `columns` field defines the columns to use for each example.
-
-## Training `nomic-embed-text-v1`
-
-### Masked Language Modeling Pretraining
-
-To train your own BERT from scratch (with all the optimizations) run
-
-```bash
-cd src/contrastors
-deepspeed --num_gpus=8 train.py --config=configs/train/mlm.yaml --deepspeed_config=configs/deepspeed/ds_config.json --dtype=bf16
-```
-
-### Constrastive Pretraining and Finetuning
-
-To launch an experiment run
-
-```bash
-cd src/contrastors
-torchrun --nproc-per-node=8 train.py --config=configs/train/contrastive_pretrain.yaml --dtype=bf16
-```
-
-This will train a bert model on all ~200M examples. To change the dataset, you can modify `data_args.input_shards`.
-
-To finetune `nomic-bert-embed-v1-unsupervised`, update the config to `configs/train/contrastive_finetune.yaml`.
-
-### Generating Your Own Data
-
-To generate your own data for any step of the pipeline, you can use the provided scripts in `scripts/text`. 
-
-See the [README](scripts/text/README.md) in `scripts/text` for more information.
-
-
-
-## Training `nomic-embed-vision-v1.5`
-
-To align a vision model, you will need to curate a large image-text dataset. More details can be found [here](https://github.com/rom1504/img2dataset).
-
-To align `nomic-embed-vision-v1.5` with `nomic-embed-text-v1.5`, you can run the following command:
-
-```bash
-deepspeed  train.py --deepspeed_config=configs/deepspeed/image_text.json --config=configs/train/nomic_embed_vision_v1.5.yaml --dtype=bf16
-```
-
-## Pretrained Models
-
-We provide pretrained models for `Nomic Embed` at the following locations:
-
-- [nomic-embed-text-v1](https://huggingface.co/nomic-ai/nomic-embed-text-v1)
-- [nomic-embed-vision-v1](https://huggingface.co/nomic-ai/nomic-embed-vision-v1)
-- [nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
-- [nomic-embed-vision-v1.5](https://huggingface.co/nomic-ai/nomic-embed-vision-v1.5)
-- [nomic-embed-text-v1-ablated](https://huggingface.co/nomic-ai/nomic-embed-text-v1-ablated)
-- [nomic-embed-text-v1-unsupervised](https://huggingface.co/nomic-ai/nomic-embed-text-v1-unsupervised)
-- [nomic-bert-2048](https://huggingface.co/nomic-ai/nomic-bert-2048)
-
-## Join the Nomic Community
-
-- Nomic: [https://nomic.ai](https://nomic.ai)
-- Discord: [https://discord.gg/myY5YDR8z8](https://discord.gg/myY5YDR8z8)
-- Twitter: [https://twitter.com/nomic_ai](https://twitter.com/nomic_ai)
+---
 
 ## License
 
-This code is licensed under the [Apache 2.0 License](LICENSE). See the model cards for the individual license for each model. 
+This code is licensed under the [Apache 2.0 License](LICENSE). See model cards for individual model licenses.
 
 ## Acknowledgements
 
-We thank Tri Dao for his work on Flash Attention and the custom kernels that make this project possible, the [OpenCLIP](https://github.com/mlfoundations/open_clip) team for their
-great repository with which much of this work is based on, and the Huggingface team for their great work on the transformers library.
+We extend thanks to the authors and maintainers of [nomic-ai/contrastors](https://github.com/nomic-ai/contrastors), FlashAttention, GradCache, and the HuggingFace ecosystem.
+Additionally, we would like to thank the BASF and Digital Research Alliance of Canada for providing the computing resources for this project.
 
+---
 
 ## Citation
 
-If you find the model, dataset, or training code useful, please cite our work
+If you find ChEmbed or this codebase useful, please cite:
+
+```bibtex
+@misc{kasmaee2025chembed,
+  title        = {ChEmbed: Enhancing Chemical Literature Search Through Domain-Specific Text Embeddings},
+  author       = {Ali Shiraee Kasmaee and Mohammad Khodadad and Mahdi Astaraki and Mohammad Arshi Saloot and Nicholas Sherck and Hamidreza Mahyar and Soheila Samiee},
+  year         = {2025},
+  eprint       = {2508.01643},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.IR},
+  doi          = {10.48550/arXiv.2508.01643},
+  url          = {https://www.arxiv.org/abs/2508.01643}
+}
+```
+
+You may also find the upstream Nomic Embed papers helpful:
 
 ```bibtex
 @misc{nussbaum2024nomic,
-      title={Nomic Embed: Training a Reproducible Long Context Text Embedder}, 
-      author={Zach Nussbaum and John X. Morris and Brandon Duderstadt and Andriy Mulyar},
-      year={2024},
-      eprint={2402.01613},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
+  title        = {Nomic Embed: Training a Reproducible Long Context Text Embedder},
+  author       = {Zach Nussbaum and John X. Morris and Brandon Duderstadt and Andriy Mulyar},
+  year         = {2024},
+  eprint       = {2402.01613},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.CL}
 }
 @misc{nussbaum2024nomicembedvisionexpanding,
-      title={Nomic Embed Vision: Expanding the Latent Space}, 
-      author={Zach Nussbaum and Brandon Duderstadt and Andriy Mulyar},
-      year={2024},
-      eprint={2406.18587},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2406.18587}, 
+  title        = {Nomic Embed Vision: Expanding the Latent Space},
+  author       = {Zach Nussbaum and Brandon Duderstadt and Andriy Mulyar},
+  year         = {2024},
+  eprint       = {2406.18587},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.CV},
+  url          = {https://arxiv.org/abs/2406.18587}
 }
 ```
