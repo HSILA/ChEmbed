@@ -16,14 +16,19 @@ CUSTOM_CODES = [
     "./src/contrastors/models/huggingface/modeling_hf_nomic_bert.py",
 ]
 
-VOCAB_FILES = [
+BASE_MODEL_REPO_ID = "nomic-ai/nomic-embed-text-v1"
+
+SENTENCE_TRANSFORMER_FILES = [
     "modules.json",
     "sentence_bert_config.json",
-    "special_tokens_map.json",
-    "tokenizer_config.json",
-    "tokenizer.json",
-    "vocab.txt",
     "1_Pooling/config.json",
+]
+
+TOKENIZER_FILES = [
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.txt",
 ]
 
 
@@ -48,10 +53,21 @@ def push_modeling_files(repo_id):
             )
 
 
-def push_tokenizer_files(target_repo_id, files_list):
+def is_local_path(path):
+    expanded_path = os.path.expanduser(path)
+    return expanded_path.startswith(("/", "./", "../", "~")) or os.path.exists(expanded_path)
+
+
+def validate_hf_repo_id(repo_id, arg_name):
+    if is_local_path(repo_id):
+        raise ValueError(
+            f"{arg_name} must be a Hugging Face repo id like 'org/name', not a local path: {repo_id}"
+        )
+
+
+def push_files_from_repo(target_repo_id, source_repo_id, files_list, file_kind):
     """
-    For each file in extra_files, download it from source_repo_id
-    and push it to target_repo_id if it doesn't already exist.
+    Download files from one HF repo and upload them to another if they do not already exist.
     """
     token = HfFolder.get_token()
     api = HfApi()
@@ -62,11 +78,10 @@ def push_tokenizer_files(target_repo_id, files_list):
     for file_name in files_list:
         if file_name not in existing_files:
             print(
-                f"Uploading tokenizer file {file_name} from 'nomic-ai/nomic-embed-text-v1' to repository..."
+                f"Uploading {file_kind} file {file_name} from '{source_repo_id}' to repository..."
             )
-            # Download file from the source repository
             local_path = hf_hub_download(
-                repo_id="nomic-ai/nomic-embed-text-v1",
+                repo_id=source_repo_id,
                 filename=file_name,
                 repo_type="model",
                 token=token,
@@ -77,9 +92,8 @@ def push_tokenizer_files(target_repo_id, files_list):
                 repo_id=target_repo_id,
                 repo_type="model",
                 token=token,
-                commit_message=f"Add extra file {file_name}",
+                commit_message=f"Add {file_kind} file {file_name}",
             )
-            os.remove(local_path)
 
 
 def parse_args():
@@ -90,12 +104,22 @@ def parse_args():
     parser.add_argument("--biencoder", action="store_true")
     parser.add_argument("--vision", action="store_true")
     parser.add_argument("--use_temp_dir", action="store_true")
-    parser.add_argument("--push_tokenizer", action="store_true")
+    parser.add_argument("--push_tokenizer_files", action="store_true")
+    parser.add_argument(
+        "--tokenizer_repo_id",
+        type=str,
+        default=None,
+        help="Optional Hugging Face repo id to use as the tokenizer source. Defaults to the base model repo when --push_tokenizer_files is set. Local paths are not supported.",
+    )
+    parser.add_argument("--push_st_files", action="store_true")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    if args.tokenizer_repo_id:
+        args.push_tokenizer_files = True
+
     if args.biencoder:
         config = BiEncoderConfig.from_pretrained(args.ckpt_path)
         model = BiEncoder.from_pretrained(args.ckpt_path, config=config)
@@ -135,5 +159,20 @@ if __name__ == "__main__":
     model.push_to_hub(args.model_name, private=args.private)
     push_modeling_files(args.model_name)
 
-    if args.push_tokenizer and args.biencoder:
-        push_tokenizer_files(args.model_name, VOCAB_FILES)
+    if args.biencoder and args.push_st_files:
+        push_files_from_repo(
+            args.model_name,
+            BASE_MODEL_REPO_ID,
+            SENTENCE_TRANSFORMER_FILES,
+            "sentence-transformer",
+        )
+
+    if args.biencoder and args.push_tokenizer_files:
+        tokenizer_repo_id = args.tokenizer_repo_id or BASE_MODEL_REPO_ID
+        validate_hf_repo_id(tokenizer_repo_id, "--tokenizer_repo_id")
+        push_files_from_repo(
+            args.model_name,
+            tokenizer_repo_id,
+            TOKENIZER_FILES,
+            "tokenizer",
+        )
